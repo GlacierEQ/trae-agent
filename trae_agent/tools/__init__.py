@@ -3,11 +3,13 @@
 
 """Tools module for Trae Agent."""
 
-from .base import Tool, ToolResult, ToolCall, ToolExecutor
-from .bash_tool import BashTool
-from .edit_tool import TextEditorTool
-from .sequential_thinking_tool import SequentialThinkingTool
-from .task_done_tool import TaskDoneTool
+from trae_agent.tools.base import Tool, ToolCall, ToolExecutor, ToolResult
+from trae_agent.tools.bash_tool import BashTool
+from trae_agent.tools.ckg_tool import CKGTool
+from trae_agent.tools.edit_tool import TextEditorTool
+from trae_agent.tools.json_edit_tool import JSONEditTool
+from trae_agent.tools.sequential_thinking_tool import SequentialThinkingTool
+from trae_agent.tools.task_done_tool import TaskDoneTool
 
 __all__ = [
     "Tool",
@@ -16,13 +18,17 @@ __all__ = [
     "ToolExecutor",
     "BashTool",
     "TextEditorTool",
+    "JSONEditTool",
     "SequentialThinkingTool",
-    "TaskDoneTool"
+    "TaskDoneTool",
+    "CKGTool",
 ]
 
-tools_registry = {
+tools_registry: dict[str, type[Tool]] = {
     "bash": BashTool,
     "str_replace_based_edit_tool": TextEditorTool,
+    "json_edit_tool": JSONEditTool,
     "sequentialthinking": SequentialThinkingTool,
-    "task_done": TaskDoneTool
+    "task_done": TaskDoneTool,
+    "ckg": CKGTool,
 }

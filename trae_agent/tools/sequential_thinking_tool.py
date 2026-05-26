@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Anthroic
+# Copyright (c) 2023 Anthropic
 # Copyright (c) 2025 ByteDance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: MIT
 #
@@ -10,10 +10,10 @@
 # This modified file is released under the same license.
 
 import json
-
 from dataclasses import dataclass
 from typing import override
-from .base import Tool, ToolCallArguments, ToolExecResult, ToolParameter
+
+from trae_agent.tools.base import Tool, ToolCallArguments, ToolExecResult, ToolParameter
 
 
 @dataclass
@@ -27,6 +27,7 @@ class ThoughtData:
     branch_from_thought: int | None = None
     branch_id: str | None = None
     needs_more_thoughts: bool | None = None
+
 
 class SequentialThinkingTool(Tool):
     """A tool for sequential thinking that helps break down complex problems.
@@ -103,25 +104,25 @@ You should:
                 name="thought",
                 type="string",
                 description="Your current thinking step",
-                required=True
+                required=True,
             ),
             ToolParameter(
                 name="next_thought_needed",
                 type="boolean",
                 description="Whether another thought step is needed",
-                required=True
+                required=True,
             ),
             ToolParameter(
                 name="thought_number",
                 type="integer",
                 description="Current thought number. Minimum value is 1.",
-                required=True
+                required=True,
             ),
             ToolParameter(
                 name="total_thoughts",
                 type="integer",
                 description="Estimated total thoughts needed. Minimum value is 1.",
-                required=True
+                required=True,
             ),
             ToolParameter(
                 name="is_revision",
@@ -147,13 +148,17 @@ You should:
                 name="needs_more_thoughts",
                 type="boolean",
                 description="If more thoughts are needed",
-            )
+            ),
         ]
 
-    def __init__(self):
+    def __init__(self, model_provider: str | None = None) -> None:
+        super().__init__(model_provider)
         self.thought_history: list[ThoughtData] = []
         self.branches: dict[str, list[ThoughtData]] = {}
-        super().__init__()
+
+    @override
+    def get_model_provider(self) -> str | None:
+        return self._model_provider
 
     def _validate_thought_data(self, arguments: ToolCallArguments) -> ThoughtData:
         """Validate the input arguments and return a ThoughtData object."""
@@ -166,7 +171,9 @@ You should:
         if "total_thoughts" not in arguments or not isinstance(arguments["total_thoughts"], int):
             raise ValueError("Invalid total_thoughts: must be a number")
 
-        if "next_thought_needed" not in arguments or not isinstance(arguments["next_thought_needed"], bool):
+        if "next_thought_needed" not in arguments or not isinstance(
+            arguments["next_thought_needed"], bool
+        ):
             raise ValueError("Invalid next_thought_needed: must be a boolean")
 
         # Validate minimum values
@@ -177,16 +184,30 @@ You should:
             raise ValueError("total_thoughts must be at least 1")
 
         # Validate optional revision fields
-        if "revises_thought" in arguments and arguments["revises_thought"] is not None:
-            if not isinstance(arguments["revises_thought"], int) or arguments["revises_thought"] < 1:
+        if (
+            "revises_thought" in arguments
+            and arguments["revises_thought"] is not None
+            and arguments["revises_thought"] != 0
+        ):
+            if (
+                not isinstance(arguments["revises_thought"], int)
+                or arguments["revises_thought"] < 1
+            ):
                 raise ValueError("revises_thought must be a positive integer")
             else:
                 revises_thought = int(arguments["revises_thought"])
         else:
             revises_thought = None
 
-        if "branch_from_thought" in arguments and arguments["branch_from_thought"] is not None:
-            if not isinstance(arguments["branch_from_thought"], int) or arguments["branch_from_thought"] < 1:
+        if (
+            "branch_from_thought" in arguments
+            and arguments["branch_from_thought"] is not None
+            and arguments["branch_from_thought"] != 0
+        ):
+            if (
+                not isinstance(arguments["branch_from_thought"], int)
+                or arguments["branch_from_thought"] < 1
+            ):
                 raise ValueError("branch_from_thought must be a positive integer")
             else:
                 branch_from_thought = int(arguments["branch_from_thought"])
@@ -222,7 +243,7 @@ You should:
             revises_thought=revises_thought,
             branch_from_thought=branch_from_thought,
             branch_id=branch_id,
-            needs_more_thoughts=needs_more_thoughts
+            needs_more_thoughts=needs_more_thoughts,
         )
 
     def _format_thought(self, thought_data: ThoughtData) -> str:
@@ -235,7 +256,9 @@ You should:
             context = f" (revising thought {thought_data.revises_thought})"
         elif thought_data.branch_from_thought:
             prefix = "🌿 Branch"
-            context = f" (from thought {thought_data.branch_from_thought}, ID: {thought_data.branch_id})"
+            context = (
+                f" (from thought {thought_data.branch_from_thought}, ID: {thought_data.branch_id})"
+            )
         else:
             prefix = "💭 Thought"
             context = ""
@@ -281,7 +304,7 @@ You should:
                 "total_thoughts": validated_input.total_thoughts,
                 "next_thought_needed": validated_input.next_thought_needed,
                 "branches": list(self.branches.keys()),
-                "thought_history_length": len(self.thought_history)
+                "thought_history_length": len(self.thought_history),
             }
 
             return ToolExecResult(
@@ -289,12 +312,8 @@ You should:
             )
 
         except Exception as e:
-            error_data = {
-                "error": str(e),
-                "status": "failed"
-            }
+            error_data = {"error": str(e), "status": "failed"}
             return ToolExecResult(
                 error=f"Sequential thinking failed: {str(e)}\n\nDetails:\n{json.dumps(error_data, indent=2)}",
-                error_code=-1
+                error_code=-1,
             )
-

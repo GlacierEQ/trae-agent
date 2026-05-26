@@ -1,4 +1,4 @@
-# Copyright (c) 2023 Anthroic
+# Copyright (c) 2023 Anthropic
 # Copyright (c) 2025 ByteDance Ltd. and/or its affiliates.
 # SPDX-License-Identifier: MIT
 #
@@ -12,8 +12,8 @@
 from pathlib import Path
 from typing import override
 
-from .base import Tool, ToolError, ToolExecResult, ToolParameter, ToolCallArguments
-from .run import maybe_truncate, run
+from trae_agent.tools.base import Tool, ToolCallArguments, ToolError, ToolExecResult, ToolParameter
+from trae_agent.tools.run import maybe_truncate, run
 
 EditToolSubCommands = [
     "view",
@@ -23,8 +23,16 @@ EditToolSubCommands = [
 ]
 SNIPPET_LINES: int = 4
 
+
 class TextEditorTool(Tool):
     """Tool to replace a string in a file."""
+
+    def __init__(self, model_provider: str | None = None) -> None:
+        super().__init__(model_provider)
+
+    @override
+    def get_model_provider(self) -> str | None:
+        return self._model_provider
 
     @override
     def get_name(self) -> str:
@@ -53,40 +61,40 @@ Notes for using the `str_replace` command:
                 type="string",
                 description=f"The commands to run. Allowed options are: {', '.join(EditToolSubCommands)}.",
                 required=True,
-                enum=EditToolSubCommands
+                enum=EditToolSubCommands,
             ),
             ToolParameter(
                 name="file_text",
                 type="string",
-                description="Required parameter of `create` command, with the content of the file to be created."
+                description="Required parameter of `create` command, with the content of the file to be created.",
             ),
             ToolParameter(
                 name="insert_line",
                 type="integer",
-                description="Required parameter of `insert` command. The `new_str` will be inserted AFTER the line `insert_line` of `path`."
+                description="Required parameter of `insert` command. The `new_str` will be inserted AFTER the line `insert_line` of `path`.",
             ),
             ToolParameter(
                 name="new_str",
                 type="string",
-                description="Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert."
+                description="Optional parameter of `str_replace` command containing the new string (if not given, no string will be added). Required parameter of `insert` command containing the string to insert.",
             ),
             ToolParameter(
                 name="old_str",
                 type="string",
-                description="Required parameter of `str_replace` command containing the string in `path` to replace."
+                description="Required parameter of `str_replace` command containing the string in `path` to replace.",
             ),
             ToolParameter(
                 name="path",
                 type="string",
                 description="Absolute path to file or directory, e.g. `/repo/file.py` or `/repo`.",
-                required=True
+                required=True,
             ),
             ToolParameter(
                 name="view_range",
                 type="array",
                 description="Optional parameter of `view` command when `path` points to a file. If none is given, the full file is shown. If provided, the file will be shown in the indicated line number range, e.g. [11, 12] will show lines 11 and 12. Indexing at 1 to start. Setting `[start_line, -1]` shows all lines from `start_line` to the end of the file.",
-                items={"type": "integer"}
-            )
+                items={"type": "integer"},
+            ),
         ]
 
     @override
@@ -96,83 +104,54 @@ Notes for using the `str_replace` command:
         if command is None:
             return ToolExecResult(
                 error=f"No command provided for the {self.get_name()} tool",
-                error_code=-1
+                error_code=-1,
             )
         path = str(arguments["path"]) if "path" in arguments else None
         if path is None:
             return ToolExecResult(
-                error=f"No path provided for the {self.get_name()} tool",
-                error_code=-1
+                error=f"No path provided for the {self.get_name()} tool", error_code=-1
             )
         _path = Path(path)
         try:
             self.validate_path(command, _path)
-
-            if command == "view":
-                view_range = arguments["view_range"] if "view_range" in arguments else None
-                return await self.view(_path, view_range) # pyright: ignore[reportArgumentType]
-            elif command == "create":
-                file_text = arguments.get("file_text") if "file_text" in arguments else None
-                if file_text is None:
+            match command:
+                case "view":
+                    return await self._view_handler(arguments, _path)
+                case "create":
+                    return self._create_handler(arguments, _path)
+                case "str_replace":
+                    return self._str_replace_handler(arguments, _path)
+                case "insert":
+                    return self._insert_handler(arguments, _path)
+                case _:
                     return ToolExecResult(
-                        error=f"Parameter `file_text` is required for command: create",
-                        error_code=-1
+                        error=f"Unrecognized command {command}. The allowed commands for the {self.name} tool are: {', '.join(EditToolSubCommands)}",
+                        error_code=-1,
                     )
-                self.write_file(_path, file_text) # pyright: ignore[reportArgumentType]
-                return ToolExecResult(
-                    output=f"File created successfully at: {_path}"
-                )
-            elif command == "str_replace":
-                old_str = arguments.get("old_str") if "old_str" in arguments else None
-                if old_str is None:
-                    return ToolExecResult(
-                        error=f"Parameter `old_str` is required for command: str_replace",
-                        error_code=-1
-                    )
-                new_str = arguments.get("new_str") if "new_str" in arguments else None
-                return self.str_replace(_path, old_str, new_str) # pyright: ignore[reportArgumentType]
-            elif command == "insert":
-                insert_line = arguments.get("insert_line") if "insert_line" in arguments else None
-                if insert_line is None:
-                    return ToolExecResult(
-                        error=f"Parameter `insert_line` is required for command: insert",
-                        error_code=-1
-                    )
-                new_str_to_insert = arguments.get("new_str") if "new_str" in arguments else None
-                if new_str_to_insert is None:
-                    return ToolExecResult(
-                        error=f"Parameter `new_str` is required for command: insert",
-                        error_code=-1
-                    )
-                return self.insert(_path, insert_line, new_str_to_insert) # pyright: ignore[reportArgumentType]
-            else:
-                return ToolExecResult(
-                    error=f"Unrecognized command {command}. The allowed commands for the {self.name} tool are: {', '.join(EditToolSubCommands)}",
-                    error_code=-1
-                )
         except ToolError as e:
-            return ToolExecResult(
-                error=str(e),
-                error_code=-1
-            )
-
+            return ToolExecResult(error=str(e), error_code=-1)
 
     def validate_path(self, command: str, path: Path):
         """Validate the path for the str_replace_editor tool."""
         if not path.is_absolute():
-            suggested_path = Path("") / path
-            raise ToolError(f"The path {path} is not an absolute path, it should start with `/`. Maybe you meant {suggested_path}?")
+            suggested_path = Path("/") / path
+            raise ToolError(
+                f"The path {path} is not an absolute path, it should start with `/`. Maybe you meant {suggested_path}?"
+            )
         # Check if path exists
         if not path.exists() and command != "create":
             raise ToolError(f"The path {path} does not exist. Please provide a valid path.")
         if path.exists() and command == "create":
-            raise ToolError(f"File already exists at: {path}. Cannot overwrite files using command `create`.")
+            raise ToolError(
+                f"File already exists at: {path}. Cannot overwrite files using command `create`."
+            )
         # Check if the path points to a directory
-        if path.is_dir():
-            if command != "view":
-                raise ToolError(f"The path {path} is a directory and only the `view` command can be used on directories")
+        if path.is_dir() and command != "view":
+            raise ToolError(
+                f"The path {path} is a directory and only the `view` command can be used on directories"
+            )
 
-    async def view(self, path: Path, view_range: list[int] | None = None) -> ToolExecResult:
+    async def _view(self, path: Path, view_range: list[int] | None = None) -> ToolExecResult:
         """Implement the view command"""
         if path.is_dir():
             if view_range:
@@ -180,24 +159,16 @@ Notes for using the `str_replace` command:
                     "The `view_range` parameter is not allowed when `path` points to a directory."
                 )
 
-            return_code, stdout, stderr = await run(
-                rf"find {path} -maxdepth 2 -not -path '*/\.*'"
-            )
+            return_code, stdout, stderr = await run(rf"find {path} -maxdepth 2 -not -path '*/\.*'")
             if not stderr:
                 stdout = f"Here's the files and directories up to 2 levels deep in {path}, excluding hidden items:\n{stdout}\n"
-            return ToolExecResult(
-                error_code=return_code,
-                output=stdout,
-                error=stderr
-                )
+            return ToolExecResult(error_code=return_code, output=stdout, error=stderr)
 
         file_content = self.read_file(path)
         init_line = 1
         if view_range:
-            if len(view_range) != 2 or not all(isinstance(i, int) for i in view_range): # pyright: ignore[reportUnnecessaryIsInstance]
-                raise ToolError(
-                    "Invalid `view_range`. It should be a list of two integers."
-                )
+            if len(view_range) != 2 or not all(isinstance(i, int) for i in view_range):  # pyright: ignore[reportUnnecessaryIsInstance]
+                raise ToolError("Invalid `view_range`. It should be a list of two integers.")
             file_lines = file_content.split("\n")
             n_lines_file = len(file_lines)
             init_line, final_line = view_range
@@ -238,11 +209,7 @@ Notes for using the `str_replace` command:
             )
         elif occurrences > 1:
             file_content_lines = file_content.split("\n")
-            lines = [
-                idx + 1
-                for idx, line in enumerate(file_content_lines)
-                if old_str in line
-            ]
+            lines = [idx + 1 for idx, line in enumerate(file_content_lines) if old_str in line]
             raise ToolError(
                 f"No replacement was performed. Multiple occurrences of old_str `{old_str}` in lines {lines}. Please ensure it is unique"
             )
@@ -261,16 +228,14 @@ Notes for using the `str_replace` command:
 
         # Prepare the success message
         success_msg = f"The file {path} has been edited. "
-        success_msg += self._make_output(
-            snippet, f"a snippet of {path}", start_line + 1
-        )
+        success_msg += self._make_output(snippet, f"a snippet of {path}", start_line + 1)
         success_msg += "Review the changes and make sure they are as expected. Edit the file again if necessary."
 
         return ToolExecResult(
             output=success_msg,
         )
 
-    def insert(self, path: Path, insert_line: int, new_str: str) -> ToolExecResult:
+    def _insert(self, path: Path, insert_line: int, new_str: str) -> ToolExecResult:
         """Implement the insert command, which inserts new_str at the specified line in the file content."""
         file_text = self.read_file(path).expandtabs()
         new_str = new_str.expandtabs()
@@ -284,9 +249,7 @@ Notes for using the `str_replace` command:
 
         new_str_lines = new_str.split("\n")
         new_file_text_lines = (
-            file_text_lines[:insert_line]
-            + new_str_lines
-            + file_text_lines[insert_line:]
+            file_text_lines[:insert_line] + new_str_lines + file_text_lines[insert_line:]
         )
         snippet_lines = (
             file_text_lines[max(0, insert_line - SNIPPET_LINES) : insert_line]
@@ -338,13 +301,60 @@ Notes for using the `str_replace` command:
         if expand_tabs:
             file_content = file_content.expandtabs()
         file_content = "\n".join(
-            [
-                f"{i + init_line:6}\t{line}"
-                for i, line in enumerate(file_content.split("\n"))
-            ]
+            [f"{i + init_line:6}\t{line}" for i, line in enumerate(file_content.split("\n"))]
         )
         return (
-            f"Here's the result of running `cat -n` on {file_descriptor}:\n"
-            + file_content
-            + "\n"
+            f"Here's the result of running `cat -n` on {file_descriptor}:\n" + file_content + "\n"
         )
+
+    async def _view_handler(self, arguments: ToolCallArguments, _path: Path) -> ToolExecResult:
+        view_range = arguments.get("view_range", None)
+        if view_range is None:
+            return await self._view(_path, None)
+        if not (isinstance(view_range, list) and all(isinstance(i, int) for i in view_range)):
+            return ToolExecResult(
+                error="Parameter `view_range` should be a list of integers.",
+                error_code=-1,
+            )
+        view_range_int: list[int] = [i for i in view_range if isinstance(i, int)]
+        return await self._view(_path, view_range_int)
+
+    def _create_handler(self, arguments: ToolCallArguments, _path: Path) -> ToolExecResult:
+        file_text = arguments.get("file_text", None)
+        if not isinstance(file_text, str):
+            return ToolExecResult(
+                error="Parameter `file_text` is required and must be a string for command: create",
+                error_code=-1,
+            )
+        self.write_file(_path, file_text)
+        return ToolExecResult(output=f"File created successfully at: {_path}")
+
+    def _str_replace_handler(self, arguments: ToolCallArguments, _path: Path) -> ToolExecResult:
+        old_str = arguments.get("old_str") if "old_str" in arguments else None
+        if not isinstance(old_str, str):
+            return ToolExecResult(
+                error="Parameter `old_str` is required and should be a string for command: str_replace",
+                error_code=-1,
+            )
+        new_str = arguments.get("new_str") if "new_str" in arguments else None
+        if not (new_str is None or isinstance(new_str, str)):
+            return ToolExecResult(
+                error="Parameter `new_str` should be a string or null for command: str_replace",
+                error_code=-1,
+            )
+        return self.str_replace(_path, old_str, new_str)
+
+    def _insert_handler(self, arguments: ToolCallArguments, _path: Path) -> ToolExecResult:
+        insert_line = arguments.get("insert_line") if "insert_line" in arguments else None
+        if not isinstance(insert_line, int):
+            return ToolExecResult(
+                error="Parameter `insert_line` is required and should be integer for command: insert",
+                error_code=-1,
+            )
+        new_str_to_insert = arguments.get("new_str") if "new_str" in arguments else None
+        if not isinstance(new_str_to_insert, str):
+            return ToolExecResult(
+                error="Parameter `new_str` is required for command: insert",
+                error_code=-1,
+            )
+        return self._insert(_path, insert_line, new_str_to_insert)
