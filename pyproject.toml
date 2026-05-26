@@ -11,7 +11,7 @@ dependencies = [
     "google-genai>=1.24.0",
     "jsonpath-ng>=1.7.0",
     "pydantic>=2.0.0",
-    "python-dotenv>=1.0.0",
+    "python-dotenv>=1.2.2",
     "rich>=13.0.0",
     "typing-extensions>=4.0.0",
     "ollama>=0.5.1",
@@ -19,7 +19,7 @@ dependencies = [
     "tree-sitter-languages==1.10.2",
     "tree-sitter==0.21.3",
     "ruff>=0.12.4",
-    "mcp==1.12.2",
+    "mcp==1.23.0",
     "asyncclick>=8.0.0",
     "pyyaml>=6.0.2",
     "textual>=0.50.0",
@@ -28,7 +28,7 @@ dependencies = [
 
 [project.optional-dependencies]
 test = [
-    "pytest>=8.0.0",
+    "pytest>=9.0.3",
     "pytest-asyncio>=0.23.0",
     "pytest-mock>=3.12.0",
     "pytest-cov>=4.0.0",
